@@ -38,7 +38,7 @@ const GROUND_Y = 1;
 let spawnDistanceTimer = 0; 
 const MIN_DISTANCE_BETWEEN_OBS = 24; 
 
-// --- TOUCH VARIABLES ---
+// --- TOUCH VARIABLES (SWIPE) ---
 let touchStartX = 0;
 let touchStartY = 0;
 
@@ -46,19 +46,24 @@ let touchStartY = 0;
 const scoreEl = document.getElementById('score');
 const msgContainer = document.getElementById('messages-container');
 
-// Buttons - Adaugam si touchstart pentru reactie rapida pe mobil
+// Buttons
+// Pe mobil 'click' are delay. Folosim touchstart direct pentru butoane.
 const startBtn = document.getElementById('start-btn');
 const restartLoseBtn = document.getElementById('restart-lose-btn');
 const restartWinBtn = document.getElementById('restart-win-btn');
 
-startBtn.addEventListener('click', startGame);
-startBtn.addEventListener('touchstart', startGame, {passive: true});
+function bindButton(btn, action) {
+    btn.addEventListener('click', action);
+    btn.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // Previne dubla declansare
+        action();
+    }, { passive: false });
+}
 
-restartLoseBtn.addEventListener('click', resetGame);
-restartLoseBtn.addEventListener('touchstart', resetGame, {passive: true});
+bindButton(startBtn, startGame);
+bindButton(restartLoseBtn, resetGame);
+bindButton(restartWinBtn, resetGame);
 
-restartWinBtn.addEventListener('click', resetGame);
-restartWinBtn.addEventListener('touchstart', resetGame, {passive: true});
 
 function init() {
     scene = new THREE.Scene();
@@ -102,15 +107,11 @@ function init() {
     // --- CONTROALE ---
     document.addEventListener('keydown', handleInput);
     
-    // Touch Events pentru Swipe
+    // TOUCH EVENTS (Aggressive)
+    // "passive: false" permite folosirea e.preventDefault() care blocheaza scroll-ul
     document.addEventListener('touchstart', handleTouchStart, { passive: false });
+    document.addEventListener('touchmove', handleTouchMove, { passive: false }); 
     document.addEventListener('touchend', handleTouchEnd, { passive: false });
-    // Prevenim scroll-ul cand miscam degetul
-    document.addEventListener('touchmove', function(e) { 
-        if(gameActive) {
-            e.preventDefault(); 
-        }
-    }, { passive: false });
     
     renderer.render(scene, camera);
 }
@@ -264,11 +265,12 @@ function spawnSingleCar(laneIndex, zPos) {
     obstacles.push({ mesh: clone, lane: laneIndex });
 }
 
-// --- LOGICA INPUT (TASTATURA + TOUCH FIX) ---
+// --- LOGICA INPUT UNIFICATA (TASTATURA + TOUCH FIX) ---
 
 function handleInput(e) {
     if (!gameActive) return;
 
+    // Blocare scroll la space/săgeți
     if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
         e.preventDefault();
     }
@@ -285,17 +287,33 @@ function handleInput(e) {
     }
 }
 
+// --- TOUCH HANDLERS ---
+
 function handleTouchStart(e) {
-    // Luam primul deget care atinge ecranul
-    const firstTouch = e.touches[0];
+    // PREVENIM ORICE COMPORTAMENT DEFAULT (SCROLL, ZOOM)
+    if(e.target.tagName !== 'BUTTON') { 
+        e.preventDefault(); 
+    }
+    
+    // Luam primul deget
+    const firstTouch = e.changedTouches[0];
     touchStartX = firstTouch.clientX;
     touchStartY = firstTouch.clientY;
+}
+
+function handleTouchMove(e) {
+    // Blocare totala a scroll-ului in timpul jocului
+    e.preventDefault();
 }
 
 function handleTouchEnd(e) {
     if(!gameActive) return;
     
-    // ChangedTouches contine degetul care tocmai s-a ridicat
+    // Blocare comportamente default (ca double-tap zoom)
+    if(e.target.tagName !== 'BUTTON') {
+        e.preventDefault();
+    }
+
     const endX = e.changedTouches[0].clientX;
     const endY = e.changedTouches[0].clientY;
     
@@ -306,23 +324,21 @@ function handleSwipe(sx, sy, ex, ey) {
     const diffX = ex - sx;
     const diffY = ey - sy;
     
-    // Prag minim pentru swipe (ca sa nu reactioneze la atingeri accidentale mici)
-    const threshold = 30;
+    const threshold = 30; // Sensibilitate
 
-    // Vedem daca miscarea a fost mai mult orizontala sau verticala
     if (Math.abs(diffX) > Math.abs(diffY)) {
-        // Miscare Orizontala
+        // ORIZONTAL (Stanga/Dreapta)
         if (Math.abs(diffX) > threshold) {
             if (diffX > 0 && currentLane < 2) {
-                currentLane++; // Dreapta
+                currentLane++; // Swipe Dreapta
             } else if (diffX < 0 && currentLane > 0) {
-                currentLane--; // Stanga
+                currentLane--; // Swipe Stanga
             }
         }
     } else {
-        // Miscare Verticala
+        // VERTICAL (Sus)
         if (Math.abs(diffY) > threshold) {
-            // Swipe UP inseamna ca Y scade (coordonata 0 e sus)
+            // Swipe UP (Y scade cand mergi in sus)
             if (diffY < 0 && !isJumping) {
                 isJumping = true;
                 jumpVelocity = JUMP_FORCE;
@@ -413,7 +429,7 @@ function animate() {
         spawnDistanceTimer = MIN_DISTANCE_BETWEEN_OBS + Math.random() * 15;
     }
 
-    // Snow animation
+    // Snow
     const positions = snowSystem.geometry.attributes.position.array;
     for(let i = 1; i < positions.length; i+=3) {
         positions[i] -= 0.1; 
@@ -436,8 +452,7 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-function startGame(e) {
-    if(e && e.cancelable) e.preventDefault(); // Previne dubla declansare
+function startGame() {
     document.getElementById('start-screen').classList.add('hidden');
     resetGameParams();
     gameActive = true;
@@ -459,8 +474,7 @@ function resetGameParams() {
     spawnDistanceTimer = 30;
 }
 
-function resetGame(e) {
-    if(e && e.cancelable) e.preventDefault();
+function resetGame() {
     document.getElementById('win-screen').classList.add('hidden');
     document.getElementById('lose-screen').classList.add('hidden');
     document.getElementById('start-screen').classList.remove('hidden');
