@@ -1,6 +1,5 @@
 // --- CONFIGURARE JOC ---
 const TARGET_SCORE = 18000;
-// Viteza usor crescuta pentru fluiditate
 const GAME_SPEED = 0.40; 
 
 const MESSAGES = [
@@ -9,6 +8,9 @@ const MESSAGES = [
     "Încă puțin!", "Perfectă!", "Inima mea e a ta",
     "Cenușăreasa mea!", "Vroom Vroom!", "Sari peste pantof!"
 ];
+
+// DETECTARE MOBIL (Ecran mai ingust de 768px)
+const isMobile = window.innerWidth < 768;
 
 // Globals
 let scene, camera, renderer;
@@ -37,10 +39,9 @@ const GROUND_Y = 1;
 
 // Spawn logic
 let spawnDistanceTimer = 0; 
-// Distanta putin mai mica pentru ca acum vedem mai departe
 const MIN_DISTANCE_BETWEEN_OBS = 22; 
 
-// --- TOUCH VARIABLES (SWIPE) ---
+// --- TOUCH VARIABLES ---
 let touchStartX = 0;
 let touchStartY = 0;
 
@@ -48,7 +49,7 @@ let touchStartY = 0;
 const scoreEl = document.getElementById('score');
 const msgContainer = document.getElementById('messages-container');
 
-// Buttons (Touch fix included)
+// Buttons
 const startBtn = document.getElementById('start-btn');
 const restartLoseBtn = document.getElementById('restart-lose-btn');
 const restartWinBtn = document.getElementById('restart-win-btn');
@@ -65,27 +66,35 @@ bindButton(startBtn, startGame);
 bindButton(restartLoseBtn, resetGame);
 bindButton(restartWinBtn, resetGame);
 
-
 function init() {
     scene = new THREE.Scene();
     
     // ZIUA
     const dayColor = 0xaaccff; 
     scene.background = new THREE.Color(dayColor);
-    
-    // --- MODIFICARE FOG (CEATA) ---
-    // O impingem mult mai departe.
-    // near: 60 (incepe subtil), far: 180 (total opac)
     scene.fog = new THREE.Fog(dayColor, 60, 180); 
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 7, 14); 
+    // Pe mobil departam putin camera ca sa se vada mai bine benzile
+    camera.position.set(0, isMobile ? 8 : 7, isMobile ? 16 : 14); 
     camera.lookAt(0, 1, -5);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    // --- OPTIMIZARE RENDERER ---
+    renderer = new THREE.WebGLRenderer({ 
+        antialias: !isMobile, // Oprim antialias pe mobil (performanta)
+        alpha: true,
+        powerPreference: "high-performance" // Cere browserului GPU-ul puternic
+    });
+    
+    // LIMITARE PIXEL RATIO: Pe mobil max 1.5, altfel "fierbe" telefonul
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+    
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    
+    // Pe mobil folosim umbre simple (Basic), pe PC umbre fine (PCFSoft)
+    renderer.shadowMap.type = isMobile ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+    
     document.body.appendChild(renderer.domElement);
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -94,8 +103,12 @@ function init() {
     const dirLight = new THREE.DirectionalLight(0xfffde7, 1.0);
     dirLight.position.set(20, 30, 10);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
+    
+    // OPTIMIZARE UMBRE: Harta mica pe mobil
+    const shadowSize = isMobile ? 512 : 2048; 
+    dirLight.shadow.mapSize.width = shadowSize;
+    dirLight.shadow.mapSize.height = shadowSize;
+    
     scene.add(dirLight);
 
     gltfLoader = new THREE.GLTFLoader();
@@ -109,7 +122,7 @@ function init() {
 
     window.addEventListener('resize', onWindowResize, false);
     
-    // --- CONTROALE (Touch Fix included) ---
+    // Inputs
     document.addEventListener('keydown', handleInput);
     document.addEventListener('touchstart', handleTouchStart, { passive: false });
     document.addEventListener('touchmove', handleTouchMove, { passive: false }); 
@@ -219,7 +232,9 @@ function createPlayer() {
 
 function createSnow() {
     const snowGeo = new THREE.BufferGeometry();
-    const snowCount = 1500;
+    // OPTIMIZARE: Mult mai putini fulgi pe mobil (600 vs 2000)
+    const snowCount = isMobile ? 600 : 2000;
+    
     const posArray = new Float32Array(snowCount * 3);
     for(let i = 0; i < snowCount * 3; i+=3) {
         posArray[i] = (Math.random() - 0.5) * 80; 
@@ -232,39 +247,30 @@ function createSnow() {
     scene.add(snowSystem);
 }
 
-// --- MODIFICARE: LOGICA DE SPAWN CU GARANTIE PANTOF ---
 function spawnObstaclePattern(zPos) {
     const lanes = [0, 1, 2];
-    lanes.sort(() => Math.random() - 0.5); // Amestecam benzile
+    lanes.sort(() => Math.random() - 0.5); 
 
-    // Decidem cate obstacole: 1, 2 sau 3
     let obstacleCount;
     const r = Math.random();
-    if (r < 0.25) obstacleCount = 1;      // 25% sanse pt 1
-    else if (r < 0.70) obstacleCount = 2; // 45% sanse pt 2
-    else obstacleCount = 3;               // 30% sanse pt 3 (ZID)
+    if (r < 0.25) obstacleCount = 1;      
+    else if (r < 0.70) obstacleCount = 2; 
+    else obstacleCount = 3;               
 
-    // LOGICA SPECIALA PENTRU 3 OBSTACOLE
     if (obstacleCount === 3) {
-        // Alegem aleatoriu UNA din cele 3 benzi care SA FIE SIGUR PANTOF
         const guaranteedShoeIndex = Math.floor(Math.random() * 3);
-
         for (let i = 0; i < 3; i++) {
             const lane = lanes[i];
             if (i === guaranteedShoeIndex) {
-                // Aici fortam pantoful
                 spawnSingleShoe(lane, zPos);
             } else {
-                // Celelalte doua pot fi random (Masina sau Pantof)
                 if (Math.random() < 0.5) spawnSingleCar(lane, zPos);
                 else spawnSingleShoe(lane, zPos);
             }
         }
     } else {
-        // Logica normala pentru 1 sau 2 obstacole (ramane mereu loc liber)
         for (let i = 0; i < obstacleCount; i++) {
             const lane = lanes[i];
-            // 40% Masina, 60% Pantof
             if (Math.random() < 0.4) spawnSingleCar(lane, zPos);
             else spawnSingleShoe(lane, zPos);
         }
@@ -289,29 +295,21 @@ function spawnSingleCar(laneIndex, zPos) {
     obstacles.push({ mesh: clone, lane: laneIndex });
 }
 
-// --- LOGICA INPUT UNIFICATA (TASTATURA + TOUCH FIX) ---
+// --- INPUTS ---
 
 function handleInput(e) {
     if (!gameActive) return;
-
-    // Blocare scroll la space/săgeți
     if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
         e.preventDefault();
     }
-
-    if (e.key === 'ArrowLeft' && currentLane > 0) {
-        currentLane--;
-    } else if (e.key === 'ArrowRight' && currentLane < 2) {
-        currentLane++;
-    }
+    if (e.key === 'ArrowLeft' && currentLane > 0) currentLane--;
+    else if (e.key === 'ArrowRight' && currentLane < 2) currentLane++;
 
     if ((e.key === 'ArrowUp' || e.key === ' ') && !isJumping) {
         isJumping = true;
         jumpVelocity = JUMP_FORCE;
     }
 }
-
-// --- TOUCH HANDLERS ---
 
 function handleTouchStart(e) {
     if(e.target.tagName !== 'BUTTON') { 
@@ -328,9 +326,8 @@ function handleTouchMove(e) {
 
 function handleTouchEnd(e) {
     if(!gameActive) return;
-    if(e.target.tagName !== 'BUTTON') {
-        e.preventDefault();
-    }
+    if(e.target.tagName !== 'BUTTON') e.preventDefault();
+    
     const endX = e.changedTouches[0].clientX;
     const endY = e.changedTouches[0].clientY;
     handleSwipe(touchStartX, touchStartY, endX, endY);
@@ -342,13 +339,11 @@ function handleSwipe(sx, sy, ex, ey) {
     const threshold = 30; 
 
     if (Math.abs(diffX) > Math.abs(diffY)) {
-        // ORIZONTAL
         if (Math.abs(diffX) > threshold) {
             if (diffX > 0 && currentLane < 2) currentLane++; 
             else if (diffX < 0 && currentLane > 0) currentLane--; 
         }
     } else {
-        // VERTICAL
         if (Math.abs(diffY) > threshold) {
             if (diffY < 0 && !isJumping) {
                 isJumping = true;
@@ -370,7 +365,6 @@ function animate() {
     if (!gameActive) return;
     frameId = requestAnimationFrame(animate);
 
-    // Physics
     if (isJumping) {
         player.position.y += jumpVelocity;
         jumpVelocity -= GRAVITY;
@@ -381,7 +375,6 @@ function animate() {
         }
     }
     
-    // Shadow
     const shadowMesh = player.getObjectByName("shadow");
     if(shadowMesh) {
         shadowMesh.position.y = -player.position.y + 0.1; 
@@ -390,11 +383,9 @@ function animate() {
         shadowMesh.material.opacity = 0.3 * scale;
     }
 
-    // Lane Movement
     const targetX = LANE_POSITIONS[currentLane];
     player.position.x += (targetX - player.position.x) * 0.15;
     
-    // Heart Rotation
     const heartModel = player.getObjectByName("heartModel");
     const time = Date.now() * 0.005;
     if(heartModel) {
@@ -405,16 +396,13 @@ function animate() {
         heartModel.rotation.y = Math.sin(time) * 0.15;
     }
 
-    // Road Loop
     roadGroup.position.z += GAME_SPEED;
     if(roadGroup.position.z > 100) roadGroup.position.z = 0;
 
-    // Obstacles
     for (let i = obstacles.length - 1; i >= 0; i--) {
         const obs = obstacles[i];
         obs.mesh.position.z += GAME_SPEED;
 
-        // Collision Check
         let colWidth = 1.0;
         if (obs.mesh.userData.type === 'car') colWidth = 2.5;
 
@@ -433,15 +421,12 @@ function animate() {
         }
     }
 
-    // Spawn
     spawnDistanceTimer -= GAME_SPEED;
     if (spawnDistanceTimer <= 0) {
         spawnObstaclePattern(-120);
-        // Distanta variabila intre spawn-uri
-        spawnDistanceTimer = MIN_DISTANCE_BETWEEN_OBS + Math.random() * 15;
+        spawnDistanceTimer = MIN_DISTANCE_BETWEEN_OBS + Math.random() * 20;
     }
 
-    // Snow
     const positions = snowSystem.geometry.attributes.position.array;
     for(let i = 1; i < positions.length; i+=3) {
         positions[i] -= 0.1; 
@@ -449,7 +434,6 @@ function animate() {
     }
     snowSystem.geometry.attributes.position.needsUpdate = true;
 
-    // Score
     score += 1; 
     scoreEl.innerText = score;
 
@@ -511,6 +495,8 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    // Recalculam Pixel Ratio la resize daca trecem de pe un monitor pe altul
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
 }
 
 init();
