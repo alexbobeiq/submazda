@@ -1,6 +1,5 @@
 // --- CONFIGURARE JOC ---
 const TARGET_SCORE = 18000;
-// VITEZA CRESCUTA (Era 0.35) - Putin mai alert
 const GAME_SPEED = 0.39; 
 
 const MESSAGES = [
@@ -12,7 +11,7 @@ const MESSAGES = [
 
 // Globals
 let scene, camera, renderer;
-let player, snowSystem, roadGroup;
+let player, snowSystem, roadGroup; 
 let obstacles = [];
 let gameActive = false;
 let score = 0;
@@ -23,7 +22,7 @@ let gltfLoader;
 let loadedShoeModel = null; 
 let loadedCarModel = null; 
 
-// --- CONFIGURARE BENZI LATE ---
+// --- CONFIGURARE BENZI ---
 let currentLane = 1; 
 const LANE_POSITIONS = [-5, 0, 5]; 
 const ROAD_LENGTH = 1200;
@@ -37,8 +36,11 @@ const GROUND_Y = 1;
 
 // Spawn logic
 let spawnDistanceTimer = 0; 
-// Distanta mai mica intre obstacole (Era 30) => Apar mai des
 const MIN_DISTANCE_BETWEEN_OBS = 24; 
+
+// Touch Variables (Swipe)
+let touchStartX = 0;
+let touchStartY = 0;
 
 // DOM Elements
 const scoreEl = document.getElementById('score');
@@ -51,7 +53,11 @@ document.getElementById('restart-win-btn').addEventListener('click', resetGame);
 
 function init() {
     scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0xfad0c4, 20, 90); 
+    
+    // ZIUA
+    const dayColor = 0xaaccff; 
+    scene.background = new THREE.Color(dayColor);
+    scene.fog = new THREE.Fog(dayColor, 15, 80); 
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 7, 14); 
@@ -63,7 +69,7 @@ function init() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
 
     const dirLight = new THREE.DirectionalLight(0xfffde7, 1.0);
@@ -83,7 +89,15 @@ function init() {
     createSnow();
 
     window.addEventListener('resize', onWindowResize, false);
+    
+    // --- CONTROALE ---
+    // Tastatura
     document.addEventListener('keydown', handleInput);
+    // Touch (Mobil)
+    document.addEventListener('touchstart', handleTouchStart, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd, { passive: false });
+    // Prevenim scroll la touchmove
+    document.addEventListener('touchmove', function(e) { if(gameActive) e.preventDefault(); }, { passive: false });
     
     renderer.render(scene, camera);
 }
@@ -91,7 +105,6 @@ function init() {
 function loadShoeModel() {
     gltfLoader.load('./shoe.glb', function (gltf) {
         loadedShoeModel = gltf.scene;
-        // Ajustari Pantof
         loadedShoeModel.scale.set(0.2, 0.2, 0.2); 
         loadedShoeModel.rotation.y = 0; 
         
@@ -104,9 +117,6 @@ function loadShoeModel() {
 function loadCarModel() {
     gltfLoader.load('./mazda.glb', function (gltf) {
         loadedCarModel = gltf.scene;
-        
-        // --- AJUSTARILE TALE PENTRU MAZDA ---
-        // 10, 15, 10 face masina mai inalta (buna de blocaj)
         loadedCarModel.scale.set(10.0, 15.0, 10.0); 
         loadedCarModel.rotation.y = 0; 
 
@@ -207,33 +217,21 @@ function createSnow() {
     scene.add(snowSystem);
 }
 
-// --- LOGICA DE SPAWN INTELIGENTA ---
-// Aceasta functie decide CE si UNDE sa apara, garantand ca nu blocheaza tot drumul
 function spawnObstaclePattern(zPos) {
-    // Avem 3 benzi: 0, 1, 2.
-    // Vrem sa umplem fie 1, fie 2 benzi. NICIODATA 3.
-    
-    // Amestecam benzile (shuffle) ca sa fie random
     const lanes = [0, 1, 2];
-    lanes.sort(() => Math.random() - 0.5); // Random shuffle
+    lanes.sort(() => Math.random() - 0.5); 
 
-    // Decidem cate obstacole punem: 1 sau 2?
-    // 60% sanse sa fie 2 obstacole (mai greu), 40% sa fie 1
     const obstacleCount = Math.random() < 0.6 ? 2 : 1;
 
     for (let i = 0; i < obstacleCount; i++) {
-        const lane = lanes[i]; // Luam o banda din cele amestecate
+        const lane = lanes[i]; 
         
-        // Decidem tipul obstacolului
-        // 40% sanse Masina, 60% Pantof
         if (Math.random() < 0.4) {
             spawnSingleCar(lane, zPos);
         } else {
             spawnSingleShoe(lane, zPos);
         }
     }
-    // Deoarece bucla merge pana la 'obstacleCount' (max 2),
-    // ramane intotdeauna cel putin o banda libera din lista 'lanes'.
 }
 
 function spawnSingleShoe(laneIndex, zPos) {
@@ -248,11 +246,13 @@ function spawnSingleShoe(laneIndex, zPos) {
 function spawnSingleCar(laneIndex, zPos) {
     if (!loadedCarModel) return;
     const clone = loadedCarModel.clone();
-    clone.userData = { height: 10.0, type: 'car' }; // Zid inalt
+    clone.userData = { height: 10.0, type: 'car' }; 
     clone.position.set(LANE_POSITIONS[laneIndex], 0, zPos);
     scene.add(clone);
     obstacles.push({ mesh: clone, lane: laneIndex });
 }
+
+// --- LOGICA INPUT (TASTATURA + TOUCH) ---
 
 function handleInput(e) {
     if (!gameActive) return;
@@ -273,6 +273,49 @@ function handleInput(e) {
     }
 }
 
+function handleTouchStart(e) {
+    if(!gameActive) return;
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+}
+
+function handleTouchEnd(e) {
+    if(!gameActive) return;
+    const touchEndX = e.changedTouches[0].screenX;
+    const touchEndY = e.changedTouches[0].screenY;
+    
+    handleSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+}
+
+function handleSwipe(sx, sy, ex, ey) {
+    const diffX = ex - sx;
+    const diffY = ey - sy;
+    
+    // Prag minim pentru a considera ca e swipe (evitam tap-uri accidentale)
+    const threshold = 30;
+
+    // Verificam daca e swipe orizontal sau vertical
+    if (Math.abs(diffX) > Math.abs(diffY)) {
+        // Orizontal
+        if (Math.abs(diffX) > threshold) {
+            if (diffX > 0 && currentLane < 2) {
+                currentLane++; // Dreapta
+            } else if (diffX < 0 && currentLane > 0) {
+                currentLane--; // Stanga
+            }
+        }
+    } else {
+        // Vertical
+        if (Math.abs(diffY) > threshold) {
+            // Swipe Up (atentie, Y scade in sus pe ecran)
+            if (diffY < 0 && !isJumping) {
+                isJumping = true;
+                jumpVelocity = JUMP_FORCE;
+            }
+        }
+    }
+}
+
 function showFloatingMessage() {
     const msg = document.createElement('div');
     msg.className = 'love-msg';
@@ -285,7 +328,7 @@ function animate() {
     if (!gameActive) return;
     frameId = requestAnimationFrame(animate);
 
-    // Physics Loop
+    // Physics
     if (isJumping) {
         player.position.y += jumpVelocity;
         jumpVelocity -= GRAVITY;
@@ -296,7 +339,7 @@ function animate() {
         }
     }
     
-    // Shadow scaling
+    // Shadow
     const shadowMesh = player.getObjectByName("shadow");
     if(shadowMesh) {
         shadowMesh.position.y = -player.position.y + 0.1; 
@@ -309,7 +352,7 @@ function animate() {
     const targetX = LANE_POSITIONS[currentLane];
     player.position.x += (targetX - player.position.x) * 0.15;
     
-    // Heart visual rotation
+    // Heart Rotation
     const heartModel = player.getObjectByName("heartModel");
     const time = Date.now() * 0.005;
     if(heartModel) {
@@ -324,7 +367,7 @@ function animate() {
     roadGroup.position.z += GAME_SPEED;
     if(roadGroup.position.z > 100) roadGroup.position.z = 0;
 
-    // Obstacles Logic
+    // Obstacles
     for (let i = obstacles.length - 1; i >= 0; i--) {
         const obs = obstacles[i];
         obs.mesh.position.z += GAME_SPEED;
@@ -348,16 +391,14 @@ function animate() {
         }
     }
 
-    // Spawn System
+    // Spawn
     spawnDistanceTimer -= GAME_SPEED;
     if (spawnDistanceTimer <= 0) {
-        // Folosim noua functie inteligenta
         spawnObstaclePattern(-120);
-        
         spawnDistanceTimer = MIN_DISTANCE_BETWEEN_OBS + Math.random() * 15;
     }
 
-    // Snow animation
+    // Snow
     const positions = snowSystem.geometry.attributes.position.array;
     for(let i = 1; i < positions.length; i+=3) {
         positions[i] -= 0.1; 
