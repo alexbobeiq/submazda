@@ -2,8 +2,7 @@ const canvas = document.getElementById('skyCanvas');
 const ctx = canvas.getContext('2d');
 
 let w, h;
-// DYNAMIC ZOOM: If screen width is less than 800px (mobile), zoom out (400). Else desktop zoom (950).
-let scale = window.innerWidth < 800 ? 400 : 950; 
+let scale; 
 
 let viewAz = Math.PI; 
 let viewAlt = 0.45;    
@@ -170,6 +169,7 @@ function project(alt, az) {
     const x = w/2 + dAz * scale; 
     const y = h/2 - (alt - viewAlt) * scale;
     
+    // We calculate visibility but return coords anyway for line logic
     const isVisible = (x > -50 && x < w + 50 && y > -50 && y < h + 50);
     return { x: x, y: y, visible: isVisible };
 }
@@ -221,9 +221,9 @@ function draw() {
         const p2 = starPos[pair[1]];
         if (p1 && p2) {
             const dist = Math.abs(p1.x - p2.x);
-            // Dynamic threshold: Limit line length to 1.5x the current zoom scale
-            // This works on both mobile (low scale) and desktop (high scale)
-            if (dist < scale * 1.5) {
+            // FIX: Ensure line is shorter than 0.9x Scale AND shorter than 80% of screen width
+            // This prevents wrapping lines on small mobile screens
+            if (dist < scale * 0.9 && dist < w * 0.8) {
                 ctx.moveTo(p1.x, p1.y); 
                 ctx.lineTo(p2.x, p2.y);
             }
@@ -275,10 +275,15 @@ function drawShootingStar() {
 }
 
 // 5. INTERACTION & START
-function startExperience() {
+function updateScale() {
     w = canvas.width = window.innerWidth;
     h = canvas.height = window.innerHeight;
-    scale = w < 800 ? 400 : 950;
+    // UPDATED ZOOM: 600 for mobile, 950 for desktop
+    scale = w < 800 ? 600 : 950;
+}
+
+function startExperience() {
+    updateScale();
     const intro = document.getElementById('intro');
     intro.style.opacity = '0';
     if (!isRunning) { isRunning = true; animate(); }
@@ -328,8 +333,7 @@ canvas.addEventListener('touchmove', e => {
 
 canvas.addEventListener('touchend', () => isDragging = false);
 
-window.addEventListener('resize', () => { 
-    w = canvas.width = window.innerWidth; 
-    h = canvas.height = window.innerHeight; 
-    scale = w < 800 ? 400 : 950;
-});
+window.addEventListener('resize', () => { updateScale(); });
+
+// Initialize width/height on load just in case
+updateScale();
