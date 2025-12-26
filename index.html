@@ -1,46 +1,318 @@
 <!DOCTYPE html>
-<html lang="ro">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cursa Iubirii - Final Shoe Edition</title>
-    <link rel="stylesheet" href="style.css">
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <title>Sotanga - Panoramic</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: #010103; overflow: hidden;
+            font-family: 'Courier New', Courier, monospace; user-select: none;
+        }
+        canvas { display: block; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+
+        /* UI */
+        .intro-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 100; background: #000; color: #fff; transition: opacity 2s ease-out;
+        }
+        .start-btn {
+            padding: 15px 40px; background: transparent; border: 1px solid #a4dcff;
+            color: #a4dcff; font-size: 1rem; cursor: pointer; letter-spacing: 3px;
+            text-transform: uppercase; border-radius: 50px; margin-top: 20px;
+            transition: all 0.3s; box-shadow: 0 0 15px rgba(164, 220, 255, 0.2);
+        }
+        .start-btn:hover { background: #a4dcff; color: #000; box-shadow: 0 0 30px #a4dcff; }
+
+        .info-card {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 600px; pointer-events: none; text-align: center;
+            color: #fff; text-shadow: 0 2px 4px #000; transition: opacity 1.5s; opacity: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); padding: 20px;
+        }
+        .hint {
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.4); pointer-events: none; opacity: 0; transition: opacity 1s;
+            font-size: 0.8rem; letter-spacing: 2px;
+        }
+    </style>
 </head>
 <body>
 
-    <div id="game-ui">
-        <div id="score-container">
-            <span id="score">0</span> / 18000 km
-        </div>
-        <div id="messages-container"></div>
+    <div class="intro-screen" id="intro">
+        <h1 style="font-weight: normal; letter-spacing: 5px; font-size: 1.5rem; color: #fff;">ȘOTÂNGA</h1>
+        <div style="opacity: 0.6; font-size: 1rem; margin-top: 10px;">January 18, 2025 • 19:00</div>
+        <button class="start-btn" onclick="startExperience()">Open Sky</button>
     </div>
 
-    <div id="start-screen" class="screen">
-        <h1>Shopping Run?</h1>
-        <p>Aleargă spre inima mea, dar ai grijă la pantofi!</p>
-        <div class="controls-hint">
-            ⬅️ ➡️ <b>Săgeți</b> pentru a schimba banda<br><br>
-            ⬆️ sau <b>SPACE</b> pentru a SĂRI peste pantofi
-        </div>
-        <button id="start-btn">Start</button>
+    <div class="hint" id="hint">DRAG TO SPIN 360°</div>
+    <canvas id="skyCanvas"></canvas>
+
+    <div class="info-card" id="card">
+        <h2 style="margin: 0 0 5px 0; color: #a4dcff; font-weight: normal;">Panoramic View</h2>
+        <p style="color: #bbb;">Full 360° sky. No edges.</p>
     </div>
 
-    <div id="lose-screen" class="screen hidden">
-        <h1>Ups!</h1>
-        <p>Ne-am împiedicat într-un toc cui.</p>
-        <button id="restart-lose-btn">Continuă</button>
-    </div>
+    <script>
+        const canvas = document.getElementById('skyCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let w, h;
+        let scale = 900; 
+        let viewAz = Math.PI; // Start facing South
+        let viewAlt = 0.4;    
+        let isDragging = false;
+        let startX, startY, startAz, startAlt;
 
-    <div id="win-screen" class="screen hidden">
-        <h1>Am ajuns!</h1>
-        <p>Tu ești Cenușăreasa mea.</p>
-        <p class="win-msg">Crăciun Fericit, iubirea mea!</p>
-        <button id="restart-win-btn">Rejoacă</button>
-    </div>
+        // ==========================================
+        // 1. STAR DATA (ALL CONSTELLATIONS)
+        // ==========================================
+        const realStars = [
+            // --- WINTER (South) ---
+            { id: 'betelgeuse', name: "Betelgeuse", ra: 5.91, dec: 7.4, mag: 0.45, color: '#ffaa8a' },
+            { id: 'rigel', name: "Rigel", ra: 5.24, dec: -8.2, mag: 0.12, color: '#cceeff' },
+            { id: 'bellatrix', name: "Bellatrix", ra: 5.41, dec: 6.3, mag: 1.6, color: '#cceeff' },
+            { id: 'saiph', name: null, ra: 5.79, dec: -9.6, mag: 2.0, color: '#cceeff' },
+            { id: 'belt1', name: null, ra: 5.68, dec: -1.9, mag: 1.7, color: '#fff' },
+            { id: 'belt2', name: null, ra: 5.60, dec: -1.2, mag: 1.6, color: '#fff' },
+            { id: 'belt3', name: null, ra: 5.53, dec: -0.3, mag: 2.2, color: '#fff' },
+            { id: 'sirius', name: "Sirius", ra: 6.75, dec: -16.7, mag: -1.46, color: '#cceeff' },
+            { id: 'mirzam', name: null, ra: 6.37, dec: -17.9, mag: 1.9, color: '#cceeff' },
+            { id: 'wezen', name: null, ra: 7.13, dec: -26.4, mag: 1.8, color: '#fff' },
+            { id: 'adhara', name: null, ra: 6.98, dec: -28.9, mag: 1.5, color: '#cceeff' },
+            { id: 'aldebaran', name: "Aldebaran", ra: 4.60, dec: 16.5, mag: 0.85, color: '#ffcc99' },
+            { id: 'elnath', name: "El Nath", ra: 5.43, dec: 28.6, mag: 1.6, color: '#cceeff' },
+            { id: 'pollux', name: "Pollux", ra: 7.75, dec: 28.0, mag: 1.1, color: '#ffcc99' },
+            { id: 'castor', name: "Castor", ra: 7.58, dec: 31.9, mag: 1.9, color: '#fff' },
+            { id: 'capella', name: "Capella", ra: 5.27, dec: 46.0, mag: 0.08, color: '#ffebb0' },
+            { id: 'procyon', name: "Procyon", ra: 7.65, dec: 5.2, mag: 0.38, color: '#fff' },
+            
+            // --- NORTH (Circumpolar) ---
+            { id: 'dubhe', name: "Dubhe", ra: 11.06, dec: 61.7, mag: 1.8, color: '#ffcc99' },
+            { id: 'merak', name: "Merak", ra: 11.03, dec: 56.3, mag: 2.3, color: '#fff' },
+            { id: 'phecda', name: null, ra: 11.89, dec: 53.6, mag: 2.4, color: '#fff' },
+            { id: 'megrez', name: null, ra: 12.25, dec: 57.0, mag: 3.3, color: '#fff' },
+            { id: 'alioth', name: null, ra: 12.90, dec: 55.9, mag: 1.7, color: '#fff' },
+            { id: 'mizar', name: "Mizar", ra: 13.39, dec: 54.9, mag: 2.2, color: '#fff' },
+            { id: 'alkaid', name: "Alkaid", ra: 13.79, dec: 49.3, mag: 1.8, color: '#cceeff' },
+            { id: 'polaris', name: "Polaris", ra: 2.53, dec: 89.2, mag: 1.9, color: '#ffebb0' },
+            { id: 'kochab', name: "Kochab", ra: 14.84, dec: 74.1, mag: 2.0, color: '#ffcc99' },
+            { id: 'schedar', name: "Schedar", ra: 0.67, dec: 56.5, mag: 2.2, color: '#ffcc99' },
+            { id: 'caph', name: null, ra: 0.15, dec: 59.1, mag: 2.2, color: '#fff' },
+            { id: 'gamma_cas', name: null, ra: 0.93, dec: 60.7, mag: 2.1, color: '#cceeff' },
+            { id: 'ruchbah', name: null, ra: 1.43, dec: 60.2, mag: 2.6, color: '#fff' },
+            { id: 'segin', name: null, ra: 1.90, dec: 63.6, mag: 3.3, color: '#fff' },
 
-    <script src="script.js"></script>
+            // --- SUMMER TRIANGLE (West) ---
+            { id: 'vega', name: "Vega", ra: 18.62, dec: 38.78, mag: 0.03, color: '#cceeff' },
+            { id: 'sheliak', name: null, ra: 18.83, dec: 33.36, mag: 3.5, color: '#fff' },
+            { id: 'sulafat', name: null, ra: 18.97, dec: 32.68, mag: 3.2, color: '#fff' },
+            { id: 'deneb', name: "Deneb", ra: 20.69, dec: 45.28, mag: 1.25, color: '#cceeff' },
+            { id: 'sadr', name: null, ra: 20.38, dec: 40.25, mag: 2.2, color: '#fff' },
+            { id: 'albireo', name: "Albireo", ra: 19.51, dec: 27.96, mag: 3.0, color: '#ffcc99' },
+            { id: 'altair', name: "Altair", ra: 19.84, dec: 8.87, mag: 0.77, color: '#cceeff' },
+            { id: 'tarazed', name: null, ra: 19.77, dec: 10.61, mag: 2.7, color: '#ffcc99' },
+
+            // --- OTHERS ---
+            { id: 'regulus', name: "Regulus", ra: 10.13, dec: 11.9, mag: 1.3, color: '#cceeff' },
+            { id: 'algieba', name: null, ra: 10.33, dec: 19.8, mag: 2.0, color: '#ffcc99' },
+            { id: 'alpheratz', name: "Alpheratz", ra: 0.13, dec: 29.0, mag: 2.0, color: '#cceeff' },
+            { id: 'markab', name: null, ra: 23.07, dec: 15.2, mag: 2.4, color: '#fff' },
+
+            // PLANETS
+            { id: 'mars', name: "Mars", ra: 8.15, dec: 24.5, mag: -0.5, color: '#ff5533', planet: true },
+            { id: 'jupiter', name: "Jupiter", ra: 4.30, dec: 21.5, mag: -2.6, color: '#fff0cc', planet: true },
+        ];
+
+        const constellations = [
+            // Winter
+            ['betelgeuse', 'bellatrix'], ['bellatrix', 'belt3'], ['betelgeuse', 'belt1'], ['belt1', 'belt2'], ['belt2', 'belt3'], ['belt3', 'rigel'], ['belt1', 'saiph'], ['rigel', 'saiph'],
+            ['sirius', 'mirzam'], ['mirzam', 'wezen'], ['wezen', 'adhara'], ['sirius', 'adhara'],
+            ['aldebaran', 'elnath'], ['castor', 'pollux'], ['capella', 'elnath'],
+            // North
+            ['dubhe', 'merak'], ['merak', 'phecda'], ['phecda', 'megrez'], ['megrez', 'alioth'], ['alioth', 'mizar'], ['mizar', 'alkaid'], ['dubhe', 'megrez'],
+            ['polaris', 'kochab'],
+            ['caph', 'schedar'], ['schedar', 'gamma_cas'], ['gamma_cas', 'ruchbah'], ['ruchbah', 'segin'],
+            // Summer
+            ['vega', 'sheliak'], ['sheliak', 'sulafat'], ['sulafat', 'vega'],
+            ['deneb', 'sadr'], ['sadr', 'albireo'],
+            ['altair', 'tarazed'],
+            // Others
+            ['regulus', 'algieba'], ['markab', 'alpheratz']
+        ];
+
+        // 2. GENERATE BACKGROUND STARS (Full Sphere)
+        const bgStars = [];
+        // Uniform
+        for(let i=0; i<4000; i++) {
+            bgStars.push({ ra: Math.random()*24, dec: (Math.random()*180)-90, mag: 3+Math.random()*4, opacity: 0.3+Math.random()*0.5 });
+        }
+        // Milky Way
+        for(let i=0; i<7000; i++) {
+            let ra = Math.random() * 24;
+            // Galactic Plane approximation
+            let centerDec = 60 * Math.sin((ra / 24) * Math.PI * 2 - 1); 
+            let spread = (Math.random()-0.5) + (Math.random()-0.5); 
+            let dec = centerDec + (spread * 25);
+            let alpha = Math.max(0, 0.5 - Math.abs(spread) * 0.4);
+            bgStars.push({ ra: ra, dec: dec, mag: 4.5+Math.random()*2, opacity: alpha });
+        }
+
+        // 3. MATH
+        const LAT = 44.96 * (Math.PI / 180);
+        const LST = 3.5; 
+
+        function getSkyPosition(ra, dec) {
+            const raRad = ra * 15 * (Math.PI / 180); const decRad = dec * (Math.PI / 180);
+            let ha = (LST - ra) * 15 * (Math.PI/180);
+            const sinDec = Math.sin(decRad); const cosDec = Math.cos(decRad);
+            const sinLat = Math.sin(LAT); const cosLat = Math.cos(LAT);
+            const cosHA = Math.cos(ha); const sinHA = Math.sin(ha);
+            const sinAlt = sinDec * sinLat + cosDec * cosLat * cosHA;
+            const alt = Math.asin(sinAlt);
+            const cosAz = (sinDec - sinAlt * sinLat) / (Math.cos(alt) * cosLat);
+            const sinAz = (-cosDec * sinHA) / Math.cos(alt);
+            let az = Math.atan2(sinAz, cosAz); if (az < 0) az += 2 * Math.PI;
+            return { alt, az };
+        }
+
+        function project(alt, az) {
+            // CYLINDRICAL PANORAMIC PROJECTION
+            let dAz = az - viewAz;
+            
+            // Wrap to -PI to +PI
+            while (dAz > Math.PI) dAz -= 2*Math.PI;
+            while (dAz < -Math.PI) dAz += 2*Math.PI;
+            
+            // Linear X calculation filling the screen
+            // If dAz is 0, star is in center (w/2)
+            const x = w/2 + dAz * scale; 
+            const y = h/2 - (alt - viewAlt) * scale;
+            
+            // Cull only if truly off-screen (with buffer for wide labels/glows)
+            // This ensures corners are filled if the scale allows it
+            if (x < -50 || x > w + 50 || y < -50 || y > h + 50) return { visible: false };
+
+            return { x, y, visible: true };
+        }
+
+        // 4. DRAW
+        function draw() {
+            ctx.fillStyle = '#010103'; ctx.fillRect(0, 0, w, h);
+
+            // Horizon (Infinite Horizontal)
+            const horizY = h/2 + viewAlt * scale;
+            const grad = ctx.createLinearGradient(0, horizY - 60, 0, horizY);
+            grad.addColorStop(0, 'transparent'); grad.addColorStop(1, '#0a1520');
+            ctx.fillStyle = grad; ctx.fillRect(0, horizY - 60, w, 60);
+            ctx.fillStyle = '#000'; ctx.fillRect(0, horizY, w, h);
+
+            // Background Stars
+            ctx.fillStyle = '#7799bb';
+            bgStars.forEach(star => {
+                const pos = getSkyPosition(star.ra, star.dec);
+                if (pos.alt > 0) {
+                    const scr = project(pos.alt, pos.az);
+                    if (scr.visible) {
+                        ctx.globalAlpha = star.opacity;
+                        ctx.fillRect(scr.x, scr.y, 1.2, 1.2);
+                    }
+                }
+            });
+            ctx.globalAlpha = 1.0;
+
+            // Real Stars Calculation
+            const starPos = {};
+            realStars.forEach(s => {
+                const p = getSkyPosition(s.ra, s.dec);
+                if (p.alt > -0.1) starPos[s.id] = project(p.alt, p.az);
+            });
+
+            // Lines
+            ctx.strokeStyle = 'rgba(135, 206, 235, 0.15)'; ctx.lineWidth = 1;
+            ctx.beginPath();
+            constellations.forEach(pair => {
+                const p1 = starPos[pair[0]]; const p2 = starPos[pair[1]];
+                // Draw line if BOTH stars are calculated (even if one is off screen, 
+                // we might want to clip, but for simplicity we skip if invisible)
+                // Better: draw if at least one is visible or they span the screen
+                if (p1 && p2 && (p1.visible || p2.visible)) {
+                    ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+                }
+            });
+            ctx.stroke();
+
+            // Stars
+            realStars.forEach(star => {
+                const scr = starPos[star.id];
+                if (scr && scr.visible) {
+                    const r = Math.max(1.5, (3 - star.mag) * 2.5);
+                    const g = ctx.createRadialGradient(scr.x, scr.y, 0, scr.x, scr.y, r * 4);
+                    g.addColorStop(0, star.color);
+                    g.addColorStop(0.2, 'rgba(255,255,255,0.2)');
+                    g.addColorStop(1, 'transparent');
+                    ctx.fillStyle = g;
+                    ctx.beginPath(); ctx.arc(scr.x, scr.y, r * 4, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath(); ctx.arc(scr.x, scr.y, r * 0.4, 0, Math.PI*2); ctx.fill();
+
+                    if (star.name && star.mag < 1.0) {
+                        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                        ctx.font = '10px Courier New';
+                        ctx.fillText(star.name, scr.x + 10, scr.y + 3);
+                    }
+                }
+            });
+
+            drawCompass();
+        }
+
+        function drawCompass() {
+            const dirs = [{t:'S',a:Math.PI},{t:'W',a:Math.PI*1.5},{t:'N',a:0},{t:'E',a:Math.PI*0.5}];
+            ctx.fillStyle = '#555'; ctx.font = '12px Courier New';
+            dirs.forEach(d => {
+                const scr = project(0, d.a);
+                if (scr && scr.visible) ctx.fillText(d.t, scr.x, h/2 + viewAlt*scale + 20);
+            });
+        }
+
+        // 5. INTERACTION
+        canvas.addEventListener('mousedown', e => {
+            isDragging = true; startX = e.clientX; startY = e.clientY;
+            startAz = viewAz; startAlt = viewAlt;
+            document.getElementById('hint').style.opacity = '0';
+        });
+        window.addEventListener('mousemove', e => {
+            if (!isDragging) return;
+            let dx = (e.clientX - startX) / scale;
+            let dy = (e.clientY - startY) / scale;
+            viewAz = startAz - dx;
+            viewAlt = startAlt + dy;
+            viewAlt = Math.max(-0.2, Math.min(1.5, viewAlt));
+            draw();
+        });
+        window.addEventListener('mouseup', () => isDragging = false);
+        canvas.addEventListener('wheel', e => {
+            scale = Math.max(500, Math.min(2500, scale - e.deltaY * 0.5)); draw();
+        });
+        window.addEventListener('resize', () => { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; draw(); });
+
+        function startExperience() {
+            w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight;
+            const intro = document.getElementById('intro'); intro.style.opacity = '0';
+            setTimeout(() => {
+                intro.style.display = 'none';
+                document.getElementById('card').style.opacity = '1';
+                document.getElementById('hint').style.opacity = '1';
+                animate();
+            }, 2000);
+        }
+        function animate() { if (!document.hidden) draw(); requestAnimationFrame(animate); }
+        w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; draw();
+
+    </script>
 </body>
 </html>
